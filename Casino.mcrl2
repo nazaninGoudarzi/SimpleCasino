@@ -1,0 +1,41 @@
+act
+	call_deposit,get_deposit,deposit,call_withdraw,get_withdraw,withdraw : Int;
+	error,pay,add,true_coinResult,false_coinResult,call_startGame,get_startGame,start;
+	call_endGame,get_endGame,End,sendToWinner,call_coinResult,get_coinResult,result;
+	call_play,get_play,play : Int#Bool;
+
+proc
+	%constructor = ;
+	
+	user(value:Int, guess:Bool) = call_play(value,guess);
+	
+	owner(value:Int) = (call_deposit(value) + call_withdraw(value) + call_startGame 
+						+ call_endGame + call_coinResult);
+	
+	Deposit(value:Int) = get_deposit(value).add;
+	
+	% error when amount <= casinoBalance
+	% second error when gameState != gameStopped
+	Withdraw(amount:Int) = get_withdraw(amount).(error + (error + pay));
+	
+	% error when gameState != gameStopped
+	StartGame = get_startGame.(error + (true_coinResult + false_coinResult));
+	
+	% error when gameState != gameStarted
+	PlayGame(value:Int, guess:Bool) = get_play(value,guess).(error +
+				((value > 0) -> add <> delta));
+				
+	% error when gameState != gameBetPlaced
+	% second error when playerGuess != coinResult
+	EndGame = get_endGame.(error + (error + sendToWinner));
+	
+	CoinResult = get_coinResult;
+
+init
+	%hide({},
+		allow({deposit,withdraw,start,play,End,result},
+			comm({call_deposit|get_deposit -> deposit,call_withdraw|get_withdraw -> withdraw,
+					call_startGame|get_startGame -> start,call_play|get_play -> play,
+					call_endGame|get_endGame -> End,call_coinResult|get_coinResult -> result},
+				user(100,true) || owner(200) || Deposit(200) || Withdraw(20) || StartGame ||
+				PlayGame(50,true) || EndGame || CoinResult));
