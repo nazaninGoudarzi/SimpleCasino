@@ -1,39 +1,88 @@
+sort player;
+cons add : Int#Int#Bool -> player;
+map
+	getAddress : player -> Int;
+	getAmount : player -> Int;
+	getGuess : player -> Bool;
+var a,v : Int;
+	g : Bool;
+eqn
+    getAddress(add(a,v,g)) = a;
+    getAmount(add(a,v,g))= v;
+    getGuess(add(a,v,g))= g;
+%----------------------------
 act
-	call_deposit,get_deposit,deposit,call_withdraw,get_withdraw,withdraw : Int;
-	error,pay,add,true_coinResult,false_coinResult,call_startGame,get_startGame,start;
-	call_endGame,get_endGame,End,sendToWinner,call_coinResult,get_coinResult,result;
-	call_play,get_play,play : Int#Bool;
+	call_deposit,get_deposit,deposit,call_withdraw,get_withdraw,withdraw : Int#Int;
+	call_Generation,get_Generation,generate : Int#Int;
+	call_returnWithdraw,get_returnWithdraw,retWithdraw,call_transfer,get_transfer,transfer : Int;
+	call_startGame,get_startGame,start,call_getCoinResult,get_getCoinResult,getter : Int;
+	call_returnNumber,get_returnNumber,retGeneration,call_endGame,get_endGame,End : Int;
+	call_returnCoinResult,get_returnCoinResult,retResult : Bool;
+	call_returnOwnerCoinResult,get_returnOwnerCoinResult,resulting : Bool;
+	call_play,get_play,play,newPlayer : player;
 
 proc
-	user(value:Int, guess:Bool) = call_play(value,guess);
+	user(address:Int,value:Int,guess:Bool) = call_deposit(address,value) + 
+		call_withdraw(address,value).sum returnValue:Int.get_returnWithdraw(returnValue) +
+		call_startGame(address).sum coinResult:Bool.get_returnCoinResult(coinResult) +
+		call_play(add(address,value,guess)) +
+		call_endGame(address).sum transferValue:Int.get_transfer(transferValue) +
+		call_getCoinResult(address).sum result:Bool.get_returnOwnerCoinResult(result);
 	
-	owner(value:Int) = (call_deposit(value) + call_withdraw(value) + call_startGame 
-						+ call_endGame + call_coinResult);
+	% gameState == 0 -> gameStopped
+	% gameState == 1 -> gameStarted
+	% gameState == 2 -> gameBetPlaced
+	Casino(p:player,owner:Int,casinoBalance:Int,gameState:Int,randNonce:Int,coin_Result:Bool) = 
+		sum address:Int.sum value:Int.get_deposit(address,value).
+			(owner == address) -> Casino(p,owner,casinoBalance + value,gameState,coin_Result) <> delta +
+		sum address:Int.sum value:Int.get_withdraw(address,value).
+			(owner == address) -> 
+				(value <= casinoBalance) ->  
+					(gameState == 0) -> call_returnWithdraw(value).
+						Casino(p,owner,casinoBalance - value,gameState,coin_Result)
+					<> delta
+				<> delta
+			<> delta +
+		sum address:Int.get_startGame(address).
+			(owner == address) ->   
+				(gameState == 0) -> call_Generation(address,randNonce).
+				sum randValue:Int.get_returnNumber(randValue).
+					(randValue > 520) -> call_returnCoinResult(true).
+						Casino(p,owner,casinoBalance,1,randNonce + 1,true)
+					<> call_returnCoinResult(false).Casino(p,owner,casinoBalance,1,randNonce + 1,false)
+				<> delta
+			<> delta +
+		sum address:Int.sum value:Int.sum guessCoin:Bool.get_play(address,value,guessCoin).
+			(gameState == 1) ->   
+				(value > 0) -> 
+					Casino(add(address,value,guessCoin),owner,casinoBalance + value,2,randNonce,coin_Result)
+				<> delta
+			<> delta +
+		sum address:Int.get_endGame(address).
+			(owner == address) ->   
+				(gameState == 2) -> 
+					(coin_Result == getGuess(p)) -> call_transfer((getAmount(p)) * 10 / 100).
+						Casino(p,owner,casinoBalance - ((getAmount(p)) * 10 / 100),0,randNonce,coin_Result)
+					<> Casino(p,owner,casinoBalance,1,randNonce,coin_Result)
+				<> delta
+			<> delta +
+		sum address:Int.get_getCoinResult(address).
+			(owner == address) ->
+				call_returnOwnerCoinResult(coin_Result)
+			<> delta;
 	
-	Deposit(value:Int) = get_deposit(value).add;
+	Generation = sum address:Int.sum random:Int.get_Generation(address,random).
+		call_returnNumber(address * random + 250);
 	
-	% error when amount <= casinoBalance
-	% second error when gameState != gameStopped
-	Withdraw(amount:Int) = get_withdraw(amount).(error + (error + pay));
-	
-	% error when gameState != gameStopped
-	StartGame = get_startGame.(error + (true_coinResult + false_coinResult));
-	
-	% error when gameState != gameStarted
-	PlayGame(value:Int, guess:Bool) = get_play(value,guess).(error +
-				((value > 0) -> add <> delta));
-				
-	% error when gameState != gameBetPlaced
-	% second error when playerGuess != coinResult
-	EndGame = get_endGame.(error + (error + sendToWinner));
-	
-	CoinResult = get_coinResult;
-
 init
-	%hide({},
-		allow({deposit,withdraw,start,play,End,result},
+	hide({generate,retGeneration},
+		allow({deposit,withdraw,retWithdraw,start,generate,retGeneration,retResult,play,End,
+			transfer,getter,resulting},
 			comm({call_deposit|get_deposit -> deposit,call_withdraw|get_withdraw -> withdraw,
-					call_startGame|get_startGame -> start,call_play|get_play -> play,
-					call_endGame|get_endGame -> End,call_coinResult|get_coinResult -> result},
-				user(100,true) || owner(200) || Deposit(200) || Withdraw(20) || StartGame ||
-				PlayGame(50,true) || EndGame || CoinResult));
+					call_returnWithdraw|get_returnWithdraw -> retWithdraw,call_startGame|get_startGame -> start,
+					call_Generation|get_Generation -> generate,call_returnNumber|get_returnNumber -> retGeneration,
+					call_returnCoinResult|get_returnCoinResult -> retResult,call_play|get_play -> play,
+					call_endGame|get_endGame -> End,call_transfer|get_transfer -> transfer,
+					call_getCoinResult|get_getCoinResult -> getter,
+					call_returnOwnerCoinResult|get_returnOwnerCoinResult -> resulting},
+				user(25,100,true) || Casino(add(0,0,false),31,0,0,101,false) || Generation)));
